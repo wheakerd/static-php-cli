@@ -2,8 +2,8 @@ ext-event:
   type: php-extension
   artifact:
     source:
-      type: url
-      url: 'https://bitbucket.org/osmanov/pecl-event/get/3.1.4.tar.gz'
+      type: pecl
+      name: event
       extract: php-src/ext/event
     metadata:
       license-files: [LICENSE]
