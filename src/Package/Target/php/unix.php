@@ -784,7 +784,7 @@ trait unix
         $libs = trim($config['libs'] . ' ' . $extra_libs);
 
         // libtool input (libphp.la). `make EXTRA_LDFLAGS=…` cmdline overrides fully replace the Makefile value, so re-include $config['ldflags'] for -L paths.
-        $extra_ldflags = clean_spaces($config['ldflags'] . ' ' . getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS'));
+        $extra_ldflags = clean_spaces($config['ldflags'] . ' ' . getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS') . ' ' . getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS_LIBPHP'));
         if (getenv('SPC_CMD_VAR_PHP_EMBED_TYPE') === 'shared'
             && !str_contains($extra_ldflags, '-avoid-version')
             && !preg_match('/-release\s+\S+/', $extra_ldflags)) {
