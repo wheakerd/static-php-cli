@@ -11,10 +11,21 @@ use StaticPHP\Attribute\PatchDescription;
 use StaticPHP\Package\PackageInstaller;
 use StaticPHP\Package\PhpExtensionPackage;
 use StaticPHP\Util\FileSystem;
+use StaticPHP\Util\GlobalEnvManager;
 
 #[Extension('intl')]
 class intl extends PhpExtensionPackage
 {
+    // php.h defines vsnprintf as ap_php_vsnprintf, breaking std::vsnprintf in libc++ <locale>
+    #[BeforeStage('php', [php::class, 'makeForUnix'], 'ext-intl')]
+    public function forceLibcxxLocaleBeforePhpHeaders(): void
+    {
+        $cxxflags = getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_CXXFLAGS') ?: '';
+        if (!str_contains($cxxflags, '-include locale')) {
+            GlobalEnvManager::putenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_CXXFLAGS=' . trim("{$cxxflags} -include locale"));
+        }
+    }
+
     #[BeforeStage('php', [php::class, 'buildconfForWindows'], 'ext-intl')]
     #[PatchDescription('Fix intl config.w32: replace hardcoded true with PHP_INTL_SHARED for static build support; add /std:c++17 required by ICU 73+')]
     public function patchBeforeBuildconfForWindows(PackageInstaller $installer): void

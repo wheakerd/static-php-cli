@@ -52,7 +52,7 @@ class php extends TargetPackage
     use pgo;
 
     /** @var string[] Supported major PHP versions */
-    public const array SUPPORTED_MAJOR_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5'];
+    public const array SUPPORTED_MAJOR_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5', '8.6'];
 
     /**
      * Get PHP version ID from php_version.h

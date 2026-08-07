@@ -258,13 +258,17 @@ class SourcePatcher
         $spc_micro_patches = array_filter($spc_micro_patches, fn ($item) => trim((string) $item) !== '');
         $patch_list = $spc_micro_patches;
         $patches = [];
-        $serial = ['80', '81', '82', '83', '84', '85'];
+        $serial = ['80', '81', '82', '83', '84', '85', '86'];
+        $start = array_search($major_ver, $serial, true);
+        if ($start === false) {
+            $start = count($serial) - 1;
+        }
         foreach ($patch_list as $patchName) {
             if (file_exists("{$patch_dir}/{$patchName}.patch")) {
                 $patches[] = "{$patch_dir}/{$patchName}.patch";
                 continue;
             }
-            for ($i = array_search($major_ver, $serial, true); $i >= 0; --$i) {
+            for ($i = $start; $i >= 0; --$i) {
                 $tryMajMin = $serial[$i];
                 if (!file_exists("{$patch_dir}/{$patchName}_{$tryMajMin}.patch")) {
                     continue;

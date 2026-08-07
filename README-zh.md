@@ -63,7 +63,7 @@ chmod +x ./spc
 首先，创建 `craft.yml` 文件，并从 [扩展列表](https://static-php.dev/en/guide/extensions.html) 或 [命令生成器](https://static-php.dev/en/guide/cli-generator.html) 指定要包含的扩展：
 
 ```yml
-# PHP version support: 8.1, 8.2, 8.3, 8.4, 8.5
+# PHP version support: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 (pre-release)
 php-version: 8.5
 # Put your extension list here
 extensions: "apcu,bcmath,calendar,ctype,curl,dba,dom,exif,fileinfo,filter,gd,iconv,mbregex,mbstring,mysqli,mysqlnd,opcache,openssl,pcntl,pdo,pdo_mysql,pdo_sqlite,phar,posix,readline,redis,session,simplexml,sockets,sodium,sqlite3,tokenizer,xml,xmlreader,xmlwriter,xsl,zip,zlib"

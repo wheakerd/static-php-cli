@@ -11,13 +11,14 @@ declare(strict_types=1);
 
 // --------------------------------- edit area ---------------------------------
 
-// test php version (8.1 ~ 8.4 available, multiple for matrix)
+// test php version (8.1 ~ 8.6 available, multiple for matrix)
 $test_php_version = [
     // '8.1',
     // '8.2',
-    '8.3',
+    // '8.3',
     // '8.4',
     '8.5',
+    '8.6',
     // 'git',
 ];
 

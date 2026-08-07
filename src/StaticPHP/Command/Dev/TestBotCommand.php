@@ -29,6 +29,7 @@ class TestBotCommand extends BaseCommand
     private const array PHP_VERSION_LABELS = [
         'test/php-83' => '8.3',
         'test/php-84' => '8.4',
+        'test/php-86' => '8.6',
     ];
 
     private const string DEFAULT_PHP_VERSION = '8.5';
