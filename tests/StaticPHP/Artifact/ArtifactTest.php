@@ -280,15 +280,14 @@ class ArtifactTest extends TestCase
         $this->assertSame($artifact->getSourceDir(), $artifact->getSourceRoot());
     }
 
-    public function testGetSourceRootUsesMetadataSourceRoot(): void
+    public function testGetSourceRootUsesSourceBuildRoot(): void
     {
         $cache = $this->makeStubbedArtifactCache([]);
         ApplicationContext::initialize();
         ApplicationContext::set(ArtifactCache::class, $cache);
 
         $artifact = new Artifact('my-pkg', [
-            'source' => ['type' => 'url', 'url' => 'https://example.com/file.tar.gz'],
-            'metadata' => ['source-root' => 'src'],
+            'source' => ['type' => 'url', 'url' => 'https://example.com/file.tar.gz', 'build-root' => 'src'],
         ]);
 
         $expected = $artifact->getSourceDir() . DIRECTORY_SEPARATOR . 'src';
