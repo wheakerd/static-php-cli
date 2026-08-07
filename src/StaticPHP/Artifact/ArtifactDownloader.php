@@ -7,6 +7,7 @@ namespace StaticPHP\Artifact;
 use Psr\Log\LogLevel;
 use StaticPHP\Artifact\Downloader\DownloadResult;
 use StaticPHP\Artifact\Downloader\Type\BitBucketTag;
+use StaticPHP\Artifact\Downloader\Type\CacheMatchInterface;
 use StaticPHP\Artifact\Downloader\Type\CheckUpdateInterface;
 use StaticPHP\Artifact\Downloader\Type\CheckUpdateResult;
 use StaticPHP\Artifact\Downloader\Type\DownloadTypeInterface;
@@ -318,7 +319,10 @@ class ArtifactDownloader
             if (!is_dir(DOWNLOAD_PATH)) {
                 FileSystem::createDir(DOWNLOAD_PATH);
             }
-            logger()->info('Downloading' . implode(', ', array_map(fn ($x) => " '{$x->getName()}'", $this->artifacts)) . " with concurrency {$this->parallel} ...");
+            $pending = array_values(array_filter($this->artifacts, fn ($a) => $this->generateQueue($a) !== []));
+            if ($pending !== []) {
+                logger()->info('Downloading' . implode(', ', array_map(fn ($x) => " '{$x->getName()}'", $pending)) . " with concurrency {$this->parallel} ...");
+            }
             // Download artifacts parallelly
             if ($this->parallel > 1) {
                 $this->downloadWithConcurrency();
@@ -573,8 +577,8 @@ class ArtifactDownloader
                 $instance = null;
                 $call = $this->downloaders[$item['config']['type']] ?? null;
                 $type_display_name = match (true) {
-                    $item['lock'] === 'source' && ($callback = $artifact->getCustomSourceCallback()) !== null => 'user defined source downloader',
-                    $item['lock'] === 'binary' && ($callback = $artifact->getCustomBinaryCallback()) !== null => 'user defined binary downloader',
+                    $item['lock'] === 'source' && $artifact->getCustomSourceCallback() !== null => $artifact->getCustomSourceCallbackOrigin() ?? 'source package downloader',
+                    $item['lock'] === 'binary' && $artifact->getCustomBinaryCallback() !== null => $artifact->getCustomBinaryCallbackOrigin() ?? 'binary package downloader',
                     default => SPC_DOWNLOAD_TYPE_DISPLAY_NAME[$item['config']['type']] ?? $item['config']['type'],
                 };
                 $try_h = $try ? 'Try downloading' : 'Downloading';
@@ -753,6 +757,20 @@ class ArtifactDownloader
         $binary_downloaded = $artifact->isBinaryDownloaded(compare_hash: true);
         $source_downloaded = $artifact->isSourceDownloaded(compare_hash: true);
 
+        // Some download types fetch content depending on request options rather than config alone
+        // (e.g. php-release varies with --with-php): let them veto a stale cache entry.
+        // Custom source callbacks carry their own semantics, they bypass type-based checks.
+        if ($source_downloaded && $artifact->getCustomSourceCallback() === null) {
+            $source_config = $artifact->getDownloadConfig('source');
+            $dl_cls = is_array($source_config) ? ($this->downloaders[$source_config['type']] ?? null) : null;
+            if ($dl_cls !== null && is_a($dl_cls, CacheMatchInterface::class, true)) {
+                $source_lock = ApplicationContext::get(ArtifactCache::class)->getSourceInfo($artifact->getName()) ?? [];
+                if (!(new $dl_cls())->cacheMatches($artifact->getName(), $source_config, $source_lock, $this)) {
+                    $source_downloaded = false;
+                }
+            }
+        }
+
         $item_source = ['display' => 'source', 'lock' => 'source', 'config' => $artifact->getDownloadConfig('source')];
         $item_source_mirror = ['display' => 'source (mirror)', 'lock' => 'source', 'config' => $artifact->getDownloadConfig('source-mirror')];
 
@@ -847,21 +865,21 @@ class ArtifactDownloader
             if (isset($this->artifacts[$artifact_name])) {
                 $this->artifacts[$artifact_name]->setCustomSourceCallback(function (ArtifactDownloader $downloader) use ($artifact_name, $custom_url) {
                     return (new Url())->download($artifact_name, ['url' => $custom_url], $downloader);
-                });
+                }, 'custom url');
             }
         }
         foreach ($this->custom_gits as $artifact_name => [$branch, $git_url]) {
             if (isset($this->artifacts[$artifact_name])) {
                 $this->artifacts[$artifact_name]->setCustomSourceCallback(function (ArtifactDownloader $downloader) use ($artifact_name, $branch, $git_url) {
                     return (new Git())->download($artifact_name, ['rev' => $branch, 'url' => $git_url], $downloader);
-                });
+                }, 'custom git');
             }
         }
         foreach ($this->custom_locals as $artifact_name => $local_path) {
             if (isset($this->artifacts[$artifact_name])) {
                 $this->artifacts[$artifact_name]->setCustomSourceCallback(function (ArtifactDownloader $downloader) use ($artifact_name, $local_path) {
                     return (new LocalDir())->download($artifact_name, ['dirname' => $local_path], $downloader);
-                });
+                }, 'custom local dir');
             }
         }
     }
