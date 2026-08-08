@@ -18,7 +18,9 @@ use StaticPHP\Package\PackageInstaller;
 use StaticPHP\Package\PhpExtensionPackage;
 use StaticPHP\Runtime\SystemTarget;
 use StaticPHP\Util\FileSystem;
+use StaticPHP\Util\InteractiveTerm;
 use StaticPHP\Util\SPCConfigUtil;
+use ZM\Logger\ConsoleColor;
 
 #[Extension('swoole')]
 class swoole extends PhpExtensionPackage
@@ -87,7 +89,7 @@ class swoole extends PhpExtensionPackage
         $arg = '--enable-swoole' . ($shared ? '=shared' : '');
 
         // commonly used feature: coroutine-time
-        $arg .= ' --enable-swoole-coro-time --with-pic';
+        $arg .= ' --enable-swoole-coro-time';
 
         $arg .= $builder->getOption('enable-zts') ? ' --enable-swoole-thread --disable-thread-context' : ' --disable-swoole-thread --enable-thread-context';
 
@@ -134,7 +136,26 @@ class swoole extends PhpExtensionPackage
     }
 
     #[AfterStage('php', [php::class, 'smokeTestCliForUnix'], 'ext-swoole-hook-mysql')]
-    public function mysqlTest(PackageInstaller $installer): void
+    public function mysqlTest(PackageInstaller $installer, PackageBuilder $builder): void
+    {
+        // allow-shared-ext-failure already quarantined swoole and dropped its .so; there is nothing left to check
+        if ($this->isSharedSkipped() || $installer->getPhpExtensionPackage('swoole-hook-mysql')?->isSharedSkipped()) {
+            return;
+        }
+
+        try {
+            $this->assertHooksEnabled($installer);
+        } catch (ValidationException $e) {
+            // only shared, separately-built extensions are skippable; static and build-with-php ones stay fatal
+            if (!$builder->getOption('allow-shared-ext-failure', false) || !$this->isBuildShared() || $this->isBuildWithPhp()) {
+                throw $e;
+            }
+            $this->markSharedSkipped('load', $e);
+            InteractiveTerm::error('SKIPPING shared extension ' . ConsoleColor::red($this->getExtensionName()) . ' — hook check failed (allow-shared-ext-failure): ' . $e->getMessage());
+        }
+    }
+
+    private function assertHooksEnabled(PackageInstaller $installer): void
     {
         [$ret, $out] = shell()->execWithResult(BUILD_ROOT_PATH . '/bin/php -n' . $this->getSharedExtensionLoadString() . ' --ri "swoole"', false);
         $out = implode('', $out);

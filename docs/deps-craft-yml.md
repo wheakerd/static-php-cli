@@ -26,6 +26,9 @@ build-options:
   enable-zts: false
   # Disable smoke test, or for specific SAPIs comma-separated (default: false)
   no-smoke-test: false
+  # Do not abort when a shared extension fails to build or to load: skip it, drop its .so, and
+  # record it in buildroot/skipped-shared-extensions.json (default: false)
+  allow-shared-ext-failure: false
   # PHP configuration options (same as --with-config-file-path)
   with-config-file-path: ""
   # PHP configuration options (same as --with-config-file-scan-dir)

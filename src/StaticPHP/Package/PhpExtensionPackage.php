@@ -32,6 +32,9 @@ class PhpExtensionPackage extends Package
 
     protected bool $build_with_php = false;
 
+    /** @var null|array{phase: string, exception: string, message: string} Set when --allow-shared-ext-failure quarantines this extension */
+    protected ?array $skip_record = null;
+
     /**
      * @param string $name Name of the php extension
      * @param string $type Type of the package, defaults to 'php-extension'
@@ -176,6 +179,53 @@ class PhpExtensionPackage extends Package
         return $this->build_with_php;
     }
 
+    /**
+     * Quarantine this shared extension: drop it from every shared filter, delete the artefacts it
+     * may have left behind, and remember why so php::postInstall() can write it to the manifest.
+     *
+     * @param string $phase 'build' or 'load'
+     */
+    public function markSharedSkipped(string $phase, \Throwable $e): void
+    {
+        $this->skip_record = ['phase' => $phase, 'exception' => $e::class, 'message' => $e->getMessage()];
+        $this->setBuildShared(false);
+        $this->removeBuiltSharedObject();
+        $this->setOutput('Shared extension SKIPPED', "{$phase} failure: {$e->getMessage()}");
+    }
+
+    /**
+     * @return null|array{phase: string, exception: string, message: string}
+     */
+    public function getSharedSkipRecord(): ?array
+    {
+        return $this->skip_record;
+    }
+
+    public function isSharedSkipped(): bool
+    {
+        return $this->skip_record !== null;
+    }
+
+    /**
+     * Delete the .so (and its debug info) of a skipped shared extension so it can never be packaged.
+     */
+    public function removeBuiltSharedObject(): void
+    {
+        // libtool's -release X gives $name-X.so as the real file, $name.so as a symlink to it
+        $release = preg_match('/-release\s+(\S+)/', (string) getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS'), $m) ? "-{$m[1]}" : '';
+        $name = $this->getExtensionName();
+        foreach ([
+            BUILD_MODULES_PATH . "/{$name}{$release}.so",
+            BUILD_MODULES_PATH . "/{$name}.so",
+            BUILD_ROOT_PATH . "/debug/{$name}{$release}.so.debug",
+        ] as $file) {
+            if (file_exists($file) || is_link($file)) {
+                @unlink($file);
+                logger()->warning("Removed artefact of skipped extension: {$file}");
+            }
+        }
+    }
+
     public function buildShared(): void
     {
         if ($this->hasStage('build')) {
@@ -316,6 +366,30 @@ class PhpExtensionPackage extends Package
     }
 
     /**
+     * A phpize Makefile defines neither RE2C nor RE2C_FLAGS, so an extension whose sources ship
+     * only the .re file falls back to `$(RE2C) $(RE2C_FLAGS) -o out.c in.re` with both empty and
+     * dies with "-o: command not found". Release tarballs ship the generated .c, but php-src git
+     * checkouts and tag archives (every pre-release) do not — that is how ext/pdo breaks. Reuse
+     * whatever the main php-src configure resolved, so -g/cgoto stays consistent with the SAPIs.
+     *
+     * @return list<string>
+     */
+    public function re2cMakeVars(): array
+    {
+        $vars = ['RE2C' => 're2c', 'RE2C_FLAGS' => '--no-generation-date -W'];
+        $makefile = SOURCE_PATH . '/php-src/Makefile';
+        if (is_file($makefile)) {
+            $content = (string) file_get_contents($makefile);
+            foreach (array_keys($vars) as $key) {
+                if (preg_match('/^' . $key . '\s*=\s*(.*)$/m', $content, $m) && trim($m[1]) !== '') {
+                    $vars[$key] = trim($m[1]);
+                }
+            }
+        }
+        return array_map(static fn (string $k, string $v): string => $k . '=' . escapeshellarg($v), array_keys($vars), $vars);
+    }
+
+    /**
      * @internal
      */
     #[Stage]
@@ -342,6 +416,7 @@ class PhpExtensionPackage extends Package
         $package->patchSharedLibAdd();
         $extra_ldflags = (string) getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS');
         $makeArgs = $extra_ldflags !== '' ? 'EXTRA_LDFLAGS=' . escapeshellarg($extra_ldflags) : '';
+        $makeArgs = trim($makeArgs . ' ' . implode(' ', $package->re2cMakeVars()));
         shell()->cd($package->getSourceRoot())
             ->setEnv($env)
             ->exec('make clean')
@@ -482,7 +557,7 @@ class PhpExtensionPackage extends Package
     {
         $sharedExts = array_filter(
             $this->getInstaller()->getResolvedPackages(PhpExtensionPackage::class),
-            fn (PhpExtensionPackage $ext) => $ext->isBuildShared() && !$ext->isBuildWithPhp()
+            fn (PhpExtensionPackage $ext) => $ext->isBuildShared() && !$ext->isBuildWithPhp() && !$ext->isSharedSkipped()
         );
 
         if (empty($sharedExts)) {

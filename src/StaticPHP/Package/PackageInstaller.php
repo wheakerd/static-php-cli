@@ -594,26 +594,33 @@ class PackageInstaller
             if (($info['cache_type'] ?? null) === 'git' || $cv === null
                 || ($cv !== $requested && !str_starts_with($cv, $requested . '.'))) {
                 $resolved = null;
-                $candidates = glob(DOWNLOAD_PATH . '/php-' . $requested . '.*.tar.xz') ?: [];
+                // pre-releases arrive as a .tar.gz git tag archive named php-8.6.0beta1.tar.gz
+                $resolved_ext = 'xz';
+                // no GLOB_BRACE: musl's glob() does not implement it
+                $candidates = array_merge(
+                    glob(DOWNLOAD_PATH . '/php-' . $requested . '.*.tar.xz') ?: [],
+                    glob(DOWNLOAD_PATH . '/php-' . $requested . '.*.tar.gz') ?: [],
+                );
                 if ($candidates !== []) {
                     usort($candidates, 'strnatcmp');
-                    if (preg_match('/^php-([0-9.]+)\.tar\.xz$/', basename(end($candidates)), $vm)) {
+                    if (preg_match('/^php-([0-9.]+(?:(?:alpha|beta|RC)[0-9]+)?)\.tar\.(xz|gz)$/', basename(end($candidates)), $vm)) {
                         $resolved = $vm[1];
+                        $resolved_ext = $vm[2];
                     }
                 } elseif ($this->download) {
                     $j = @file_get_contents('https://www.php.net/releases/index.php?json&version=' . urlencode($requested));
                     $rel = is_string($j) ? json_decode($j, true) : null;
                     $resolved = is_array($rel) ? ($rel['version'] ?? null) : null;
                 } else {
-                    throw new WrongUsageException("Requested PHP '{$requested}' but no php-{$requested}.*.tar.xz in downloads/; drop --no-download or run 'bin/spc download php-src --with-php={$requested}' first.");
+                    throw new WrongUsageException("Requested PHP '{$requested}' but no php-{$requested}.*.tar.xz or .tar.gz in downloads/; drop --no-download or run 'bin/spc download php-src --with-php={$requested}' first.");
                 }
                 if ($resolved !== null) {
                     $cf = DOWNLOAD_PATH . '/.cache.json';
                     $j = json_decode(@file_get_contents($cf) ?: '{}', true) ?: [];
-                    $tarball = DOWNLOAD_PATH . "/php-{$resolved}.tar.xz";
+                    $tarball = DOWNLOAD_PATH . "/php-{$resolved}.tar.{$resolved_ext}";
                     $j['php-src']['source'] = [
                         'lock_type' => 'source', 'cache_type' => 'archive',
-                        'filename' => "php-{$resolved}.tar.xz",
+                        'filename' => "php-{$resolved}.tar.{$resolved_ext}",
                         'extract' => $info['extract'] ?? null,
                         'hash' => is_file($tarball) ? sha1_file($tarball) : null,
                         'time' => time(), 'version' => $resolved,

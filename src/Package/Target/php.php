@@ -164,6 +164,7 @@ class php extends TargetPackage
         // embed build options
         if ($package->getName() === 'php' || $package->getName() === 'php-embed') {
             $package->addBuildOption('build-shared', 'D', InputOption::VALUE_REQUIRED, 'Shared extensions to build, comma separated', '');
+            $package->addBuildOption('allow-shared-ext-failure', null, null, 'Do not abort when a shared extension fails to build or to load; skip it, drop its .so, and record it in buildroot/skipped-shared-extensions.json');
             $package->addBuildOption('maintainer-skip-build', null, null, '(maintainer only) skip embed build if exists');
         }
 
@@ -352,10 +353,11 @@ class php extends TargetPackage
 
         // clean old modules that may conflict with the new php build
         FileSystem::removeDir(BUILD_MODULES_PATH);
+        FileSystem::removeFileIfExists(BUILD_ROOT_PATH . '/skipped-shared-extensions.json');
     }
 
     #[Stage('postInstall')]
-    public function postInstall(TargetPackage $package, PackageInstaller $installer): void
+    public function postInstall(TargetPackage $package, PackageInstaller $installer, PackageBuilder $builder): void
     {
         if ($package->getName() === 'frankenphp') {
             if (SystemTarget::getTargetOS() === 'Windows') {
@@ -384,6 +386,41 @@ class php extends TargetPackage
             if ($installer->interactive) {
                 InteractiveTerm::finish('PHP smoke tests passed');
             }
+        }
+        $this->writeSkippedSharedExtensionsManifest($package, $installer, $builder);
+    }
+
+    /**
+     * Record the shared extensions quarantined by --allow-shared-ext-failure.
+     * Written unconditionally (even with an empty list) so consumers can tell
+     * "nothing was skipped" apart from "spc is too old to report".
+     */
+    private function writeSkippedSharedExtensionsManifest(TargetPackage $package, PackageInstaller $installer, PackageBuilder $builder): void
+    {
+        $skipped = [];
+        foreach ($installer->getResolvedPackages(PhpExtensionPackage::class) as $ext) {
+            if (($record = $ext->getSharedSkipRecord()) === null) {
+                continue;
+            }
+            $skipped[] = [
+                'package' => $ext->getName(),
+                'extension' => $ext->getExtensionName(),
+                'phase' => $record['phase'],
+                'exception' => $record['exception'],
+                'message' => $record['message'],
+            ];
+        }
+
+        FileSystem::writeFile(BUILD_ROOT_PATH . '/skipped-shared-extensions.json', json_encode([
+            'schema' => 1,
+            'generated_at' => date('c'),
+            'php_version_id' => self::getPHPVersionID(return_null_if_failed: true),
+            'allow_shared_ext_failure' => (bool) $builder->getOption('allow-shared-ext-failure', false),
+            'skipped' => $skipped,
+        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+        if ($skipped !== []) {
+            $package->setOutput('Skipped shared extensions', implode(', ', array_column($skipped, 'extension')));
         }
     }
 
