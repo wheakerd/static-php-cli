@@ -90,6 +90,9 @@ class ArtifactDownloader
 
     private array $_before_files;
 
+    /** @var array<string, array> Memoized generateQueue() results, valid for one download() run (queues only depend on each artifact's own cache files) */
+    private array $queue_memo = [];
+
     /**
      * @param array{
      *     parallel?: int,
@@ -319,6 +322,8 @@ class ArtifactDownloader
             if (!is_dir(DOWNLOAD_PATH)) {
                 FileSystem::createDir(DOWNLOAD_PATH);
             }
+            // fresh memo for this run: queues reflect pre-download cache state
+            $this->queue_memo = [];
             $pending = array_values(array_filter($this->artifacts, fn ($a) => $this->generateQueue($a) !== []));
             if ($pending !== []) {
                 logger()->info('Downloading' . implode(', ', array_map(fn ($x) => " '{$x->getName()}'", $pending)) . " with concurrency {$this->parallel} ...");
@@ -752,6 +757,10 @@ class ArtifactDownloader
      */
     private function generateQueue(Artifact $artifact): array
     {
+        $memo_key = $artifact->getName();
+        if (isset($this->queue_memo[$memo_key])) {
+            return $this->queue_memo[$memo_key];
+        }
         /** @var array<array{display: string, lock: string, config: array}> $queue */
         $queue = [];
         $binary_downloaded = $artifact->isBinaryDownloaded(compare_hash: true);
@@ -820,7 +829,7 @@ class ArtifactDownloader
             if (empty($queue)) {
                 throw new ValidationException("Artifact '{$artifact->getName()}' does not provide any download source for current platform (" . SystemTarget::getCurrentPlatformString() . ').');
             }
-            return $queue;
+            return $this->queue_memo[$memo_key] = $queue;
         }
 
         // check if already downloaded
@@ -841,7 +850,7 @@ class ArtifactDownloader
 
         // if already downloaded, skip
         if ($has_usable_download) {
-            return [];
+            return $this->queue_memo[$memo_key] = [];
         }
 
         // validate: ensure at least one download source is available
@@ -856,7 +865,7 @@ class ArtifactDownloader
             throw new ValidationException("Validation failed: Artifact '{$artifact->getName()}' does not provide any download source for current platform (" . SystemTarget::getCurrentPlatformString() . ').');
         }
 
-        return $queue;
+        return $this->queue_memo[$memo_key] = $queue;
     }
 
     private function applyCustomDownloads(): void
