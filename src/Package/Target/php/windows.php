@@ -57,10 +57,11 @@ trait windows
             "--with-extra-libs={$package->getLibDir()}",
         ];
         // sapis
-        $cli = $installer->isPackageResolved('php-cli');
         $cgi = $installer->isPackageResolved('php-cgi');
         $micro = $installer->isPackageResolved('php-micro');
         $embed = $installer->isPackageResolved('php-embed');
+        // PHP >= 8.6 links the CLI objects into libphp for do_php_cli()
+        $cli = $installer->isPackageResolved('php-cli') || ($embed && self::getPHPVersionID() >= 80600);
         $args[] = $cli ? '--enable-cli=yes' : '--enable-cli=no';
         $args[] = $cgi ? '--enable-cgi=yes' : '--enable-cgi=no';
         $args[] = $micro ? '--enable-micro=yes' : '--enable-micro=no';

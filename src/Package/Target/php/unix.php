@@ -148,7 +148,10 @@ trait unix
             $args[] = "--sysconfdir={$option}";
         }
         // perform enable cli options
-        $args[] = $installer->isPackageResolved('php-cli') ? '--enable-cli' : '--disable-cli';
+        // PHP >= 8.6 links the CLI objects into libphp for do_php_cli()
+        $cli = $installer->isPackageResolved('php-cli')
+            || ($version_id >= 80600 && $installer->isPackageResolved('php-embed'));
+        $args[] = $cli ? '--enable-cli' : '--disable-cli';
         $args[] = $installer->isPackageResolved('php-fpm')
             ? '--enable-fpm' . ($installer->isPackageResolved('libacl') ? ' --with-fpm-acl' : '')
             : '--disable-fpm';

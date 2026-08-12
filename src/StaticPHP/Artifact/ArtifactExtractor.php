@@ -177,11 +177,10 @@ class ArtifactExtractor
             return SPC_STATUS_ALREADY_EXTRACTED;
         }
 
-        // Remove old directory if hash mismatch.
-        // Guard: a symlink at $target_path (left over from older local-source handling) must be
-        // unlinked directly — never recurse into the link target, that would wipe the user's tree.
-        if (is_link($target_path)) {
-            @unlink($target_path);
+        // Remove old directory if hash mismatch
+        if (FileSystem::isLink($target_path)) {
+            logger()->debug("Source [{$name}] is linked to a local directory, relinking...");
+            FileSystem::removeLink($target_path);
         } elseif (is_dir($target_path)) {
             logger()->notice("Source [{$name}] hash mismatch, re-extracting...");
             FileSystem::removeDir($target_path);
