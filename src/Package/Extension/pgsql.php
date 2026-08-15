@@ -24,12 +24,11 @@ class pgsql extends PhpExtensionPackage
     public function getUnixConfigureArg(bool $shared, PackageBuilder $builder, PackageInstaller $installer): string
     {
         if (php::getPHPVersionID() >= 80400) {
-            $libfiles = new SPCConfigUtil(['libs_only_deps' => true, 'absolute_libs' => true])->getPackageDepsConfig('postgresql', array_keys($installer->getResolvedPackages()))['libs'];
-            $libfiles = str_replace("{$builder->getLibDir()}/lib", '-l', $libfiles);
-            $libfiles = str_replace('.a', '', $libfiles);
+            // These override pkg-config, so they must carry libpq itself too
+            $libs = new SPCConfigUtil(['no_php' => true, 'libs_only_deps' => true])->configForResolvedBuild(['postgresql'], $installer)['libs'];
             return '--with-pgsql' . ($shared ? '=shared' : '') .
                 ' PGSQL_CFLAGS=-I' . $builder->getIncludeDir() .
-                ' PGSQL_LIBS="-L' . $builder->getLibDir() . ' ' . $libfiles . '"';
+                ' PGSQL_LIBS="-L' . $builder->getLibDir() . ' ' . $libs . '"';
         }
         return '--with-pgsql=' . ($shared ? 'shared,' : '') . $builder->getBuildRootPath();
     }
@@ -67,7 +66,8 @@ class pgsql extends PhpExtensionPackage
     public function getSharedExtensionEnv(): array
     {
         $parent = parent::getSharedExtensionEnv();
-        $parent['CFLAGS'] .= ' -std=c17 -Wno-int-conversion';
+        // gnu17, not c17: PHP 8.6 headers use typeof
+        $parent['CFLAGS'] .= ' -std=gnu17 -Wno-int-conversion';
         return $parent;
     }
 }

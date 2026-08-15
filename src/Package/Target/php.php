@@ -15,6 +15,7 @@ use StaticPHP\Attribute\Package\ResolveBuild;
 use StaticPHP\Attribute\Package\Stage;
 use StaticPHP\Attribute\Package\Target;
 use StaticPHP\Attribute\Package\Validate;
+use StaticPHP\Attribute\PatchDescription;
 use StaticPHP\Config\PackageConfig;
 use StaticPHP\DI\ApplicationContext;
 use StaticPHP\Exception\WrongUsageException;
@@ -50,7 +51,7 @@ class php extends TargetPackage
     use frankenphp;
 
     /** @var string[] Supported major PHP versions */
-    public const array SUPPORTED_MAJOR_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5'];
+    public const array SUPPORTED_MAJOR_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5', '8.6'];
 
     /**
      * Get PHP version ID from php_version.h
@@ -449,6 +450,36 @@ class php extends TargetPackage
             } else {
                 logger()->debug("Linking extension [{$ext->getName()}] source root to {$ext_dir}...");
                 symlink($source_root, $ext_dir);
+            }
+        }
+    }
+
+    #[BeforeStage('php', 'build')]
+    #[PatchDescription('Replace XtOffsetOf (removed in PHP 8.6) with offsetof in extension sources')]
+    public function patchExtensionXtOffsetOf(PackageInstaller $installer): void
+    {
+        if (self::getPHPVersionID() < 80600) {
+            return;
+        }
+        foreach ($installer->getResolvedPackages(PhpExtensionPackage::class) as $ext) {
+            // extensions bundled with php-src are already 8.6-clean
+            if ($ext->getArtifact() === null) {
+                continue;
+            }
+            $build_dir = $ext->getBuildDir();
+            if (!is_dir($build_dir)) {
+                continue;
+            }
+            foreach (FileSystem::scanDirFiles($build_dir) ?: [] as $file) {
+                if (!in_array(FileSystem::extname($file), ['c', 'cc', 'cpp', 'cxx', 'h', 'hpp'], true)) {
+                    continue;
+                }
+                $content = FileSystem::readFile($file);
+                if (!str_contains($content, 'XtOffsetOf')) {
+                    continue;
+                }
+                logger()->debug("Replacing XtOffsetOf with offsetof in {$file}");
+                FileSystem::writeFile($file, str_replace('XtOffsetOf', 'offsetof', $content));
             }
         }
     }

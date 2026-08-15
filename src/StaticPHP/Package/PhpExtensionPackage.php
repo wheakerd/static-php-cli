@@ -333,6 +333,30 @@ class PhpExtensionPackage extends Package
     }
 
     /**
+     * A phpize Makefile defines neither RE2C nor RE2C_FLAGS, so an extension whose sources ship
+     * only the .re file falls back to `$(RE2C) $(RE2C_FLAGS) -o out.c in.re` with both empty and
+     * dies with "-o: command not found". Release tarballs ship the generated .c, but php-src git
+     * checkouts and tag archives (every pre-release) do not — that is how ext/pdo breaks. Reuse
+     * whatever the main php-src configure resolved, so -g/cgoto stays consistent with the SAPIs.
+     *
+     * @return list<string>
+     */
+    public function re2cMakeVars(): array
+    {
+        $vars = ['RE2C' => 're2c', 'RE2C_FLAGS' => '--no-generation-date -W'];
+        $makefile = SOURCE_PATH . '/php-src/Makefile';
+        if (is_file($makefile)) {
+            $content = (string) file_get_contents($makefile);
+            foreach (array_keys($vars) as $key) {
+                if (preg_match('/^' . $key . '\s*=\s*(.*)$/m', $content, $m) && trim($m[1]) !== '') {
+                    $vars[$key] = trim($m[1]);
+                }
+            }
+        }
+        return array_map(static fn (string $k, string $v): string => $k . '=' . escapeshellarg($v), array_keys($vars), $vars);
+    }
+
+    /**
      * @internal
      */
     #[Stage]
@@ -354,11 +378,12 @@ class PhpExtensionPackage extends Package
     #[Stage]
     public function makeForUnix(array $env, PhpExtensionPackage $package, PackageBuilder $builder): void
     {
+        $makeArgs = implode(' ', $package->re2cMakeVars());
         shell()->cd($package->getSourceRoot())
             ->setEnv($env)
             ->exec('make clean')
-            ->exec("make -j{$builder->concurrency}")
-            ->exec('make install')
+            ->exec("make -j{$builder->concurrency} {$makeArgs}")
+            ->exec("make install {$makeArgs}")
             // distclean after install: phpize build residues (.lo/.libs/config.status) would
             // poison a later static in-tree build sharing this source dir (php-src's make
             // clean uses find, which does not follow the ext symlink)

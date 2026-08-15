@@ -41,14 +41,15 @@ trait unix
         // php-src patches from micro (reads SPC_MICRO_PATCHES env var)
         SourcePatcher::patchPhpSrc();
 
-        // patch configure.ac for musl and musl-toolchain
+        // patch libc detection for musl and musl-toolchain
         $musl = SystemTarget::getTargetOS() === 'Linux' && SystemTarget::getLibc() === 'musl';
-        FileSystem::backupFile(SOURCE_PATH . '/php-src/configure.ac');
-        FileSystem::replaceFileStr(
-            SOURCE_PATH . '/php-src/configure.ac',
-            'if command -v ldd >/dev/null && ldd --version 2>&1 | grep ^musl >/dev/null 2>&1',
-            'if ' . ($musl ? 'true' : 'false')
-        );
+        foreach (['configure.ac', 'build/php.m4'] as $libc_probe_file) {
+            FileSystem::replaceFileStr(
+                SOURCE_PATH . "/php-src/{$libc_probe_file}",
+                'command -v ldd >/dev/null && ldd --version 2>&1 | grep ^musl >/dev/null 2>&1',
+                $musl ? 'true' : 'false'
+            );
+        }
 
         // let php m4 tools use static pkg-config
         FileSystem::replaceFileStr("{$package->getSourceDir()}/build/php.m4", 'PKG_CHECK_MODULES(', 'PKG_CHECK_MODULES_STATIC(');
@@ -118,7 +119,10 @@ trait unix
             $args[] = "--with-config-file-scan-dir={$option}";
         }
         // perform enable cli options
-        $args[] = $installer->isPackageResolved('php-cli') ? '--enable-cli' : '--disable-cli';
+        // PHP >= 8.6 links the CLI objects into libphp for do_php_cli()
+        $cli = $installer->isPackageResolved('php-cli')
+            || ($version_id >= 80600 && $installer->isPackageResolved('php-embed'));
+        $args[] = $cli ? '--enable-cli' : '--disable-cli';
         $args[] = $installer->isPackageResolved('php-fpm')
             ? '--enable-fpm' . ($installer->isPackageResolved('libacl') ? ' --with-fpm-acl' : '')
             : '--disable-fpm';
@@ -134,6 +138,11 @@ trait unix
 
         $static_extension_str = $this->makeStaticExtensionString($installer);
 
+        $configure_str = "{$cmd} {$args} {$static_extension_str}";
+        if ($version_id >= 80600) {
+            $configure_str = str_replace('--with-pic', '--enable-pic', $configure_str);
+        }
+
         // reuse the same make vars so configure conftest links use the same LIBS (incl. -framework flags)
         $vars = $this->makeVars($installer);
 
@@ -143,7 +152,7 @@ trait unix
             'CPPFLAGS' => "-I{$package->getIncludeDir()}",
             'LDFLAGS' => "-L{$package->getLibDir()} " . getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS'),
             'LIBS' => $vars['EXTRA_LIBS'] ?? '',
-        ])->exec("{$cmd} {$args} {$static_extension_str}"), $package->getSourceDir());
+        ])->exec($configure_str), $package->getSourceDir());
     }
 
     #[BeforeStage('php', [self::class, 'makeForUnix'], 'php')]
@@ -380,6 +389,7 @@ trait unix
 
             FileSystem::replaceFileLineContainsString(BUILD_BIN_PATH . '/php-config', 'extension_dir=', 'extension_dir="' . BUILD_MODULES_PATH . '"');
             FileSystem::replaceFileStr(BUILD_LIB_PATH . '/php/build/phpize.m4', 'test "[$]$1" = "no" && $1=yes', '# test "[$]$1" = "no" && $1=yes');
+            $this->installRemovedMacroCompatHeader();
         }
 
         try {
@@ -777,6 +787,70 @@ trait unix
                 }
             }
         }
+    }
+
+    /**
+     * PHP 8.6 dropped a batch of long-deprecated aliases
+     */
+    private function installRemovedMacroCompatHeader(): void
+    {
+        if (php::getPHPVersionID() < 80600) {
+            return;
+        }
+        $header = BUILD_ROOT_PATH . '/include/php/main/php.h';
+        if (!file_exists($header) || str_contains((string) file_get_contents($header), 'SPC_REMOVED_MACRO_COMPAT')) {
+            return;
+        }
+        FileSystem::writeFile($header, <<<'C'
+
+            #ifndef SPC_REMOVED_MACRO_COMPAT
+            #define SPC_REMOVED_MACRO_COMPAT
+            #ifndef XtOffsetOf
+            # define XtOffsetOf(s_type, field) offsetof(s_type, field)
+            #endif
+            #ifndef ZVAL_IS_NULL
+            # define ZVAL_IS_NULL(z) (Z_TYPE_P(z) == IS_NULL)
+            #endif
+            #ifndef zval_dtor
+            # define zval_dtor(zvalue) zval_ptr_dtor_nogc(zvalue)
+            #endif
+            #ifndef zval_is_true
+            # define zval_is_true(op) zend_is_true(op)
+            #endif
+            #ifndef INI_INT
+            # define INI_INT(name) zend_ini_long((name), strlen(name), 0)
+            #endif
+            #ifndef INI_FLT
+            # define INI_FLT(name) zend_ini_double((name), strlen(name), 0)
+            #endif
+            #ifndef INI_STR
+            # define INI_STR(name) zend_ini_string_ex((name), strlen(name), 0, NULL)
+            #endif
+            #ifndef INI_BOOL
+            # define INI_BOOL(name) ((bool) INI_INT(name))
+            #endif
+            #ifndef ZEND_PARSE_PARAMS_THROW
+            # define ZEND_PARSE_PARAMS_THROW 0
+            #endif
+            #ifndef EMPTY_SWITCH_DEFAULT_CASE
+            # define EMPTY_SWITCH_DEFAULT_CASE() default: ZEND_UNREACHABLE(); break;
+            #endif
+            #ifndef zend_parse_parameters_throw
+            # define zend_parse_parameters_throw(num_args, ...) zend_parse_parameters(num_args, __VA_ARGS__)
+            #endif
+            #ifndef ZEND_WRONG_PARAM_COUNT
+            # define ZEND_WRONG_PARAM_COUNT() { zend_wrong_param_count(); return; }
+            #endif
+            #ifndef WRONG_PARAM_COUNT
+            # define WRONG_PARAM_COUNT ZEND_WRONG_PARAM_COUNT()
+            #endif
+            #ifndef OPENBASEDIR_CHECKPATH
+            # define OPENBASEDIR_CHECKPATH(filename) php_check_open_basedir(filename)
+            #endif
+            #endif
+
+            C, FILE_APPEND);
+        logger()->info('Restored macros removed in PHP 8.6 for phpize builds');
     }
 
     /**
