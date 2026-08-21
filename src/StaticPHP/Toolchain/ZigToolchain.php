@@ -7,6 +7,8 @@ namespace StaticPHP\Toolchain;
 use Package\Artifact\zig;
 use Package\Target\llvm_compiler_rt;
 use StaticPHP\Package\PackageInstaller;
+use StaticPHP\Package\ToolPackage;
+use StaticPHP\Registry\PackageLoader;
 use StaticPHP\Runtime\SystemTarget;
 use StaticPHP\Toolchain\Interface\UnixToolchainInterface;
 use StaticPHP\Util\GlobalEnvManager;
@@ -14,7 +16,7 @@ use StaticPHP\Util\System\LinuxUtil;
 
 class ZigToolchain implements UnixToolchainInterface
 {
-    private static bool $rt_ensured = false;
+    private static bool $deps_ensured = false;
 
     public function initEnv(): void
     {
@@ -63,7 +65,7 @@ class ZigToolchain implements UnixToolchainInterface
         $extra_vars = getenv('SPC_EXTRA_PHP_VARS') ?: '';
         GlobalEnvManager::putenv("SPC_EXTRA_PHP_VARS=ac_cv_func_strlcpy=no ac_cv_func_strlcat=no {$extra_vars}");
 
-        $this->ensureCompilerRt();
+        $this->ensureBuildDeps();
     }
 
     public function getCompilerInfo(): ?string
@@ -99,17 +101,23 @@ class ZigToolchain implements UnixToolchainInterface
         return false;
     }
 
-    private function ensureCompilerRt(): void
+    private function ensureBuildDeps(): void
     {
-        if (self::$rt_ensured) {
+        if (self::$deps_ensured) {
             return;
         }
-        self::$rt_ensured = true;
-        if (llvm_compiler_rt::isBuilt()) {
-            return;
+        self::$deps_ensured = true;
+
+        if (!llvm_compiler_rt::isBuilt()) {
+            logger()->info('Building llvm-compiler-rt for ' . SystemTarget::getCanonicalTriple());
+            new PackageInstaller(interactive: false)->addBuildPackage('llvm-compiler-rt')->run(true);
         }
-        logger()->info('Building llvm-compiler-rt for ' . SystemTarget::getCanonicalTriple());
-        new PackageInstaller(interactive: false)->addBuildPackage('llvm-compiler-rt')->run(true);
+
+        $tools = PackageLoader::getPackage('llvm-tools');
+        if ($tools instanceof ToolPackage && !$tools->isInstalled()) {
+            logger()->info('Installing llvm-tools');
+            new PackageInstaller(['dl-prefer-binary' => true], interactive: false)->addInstallPackage('llvm-tools')->run(true);
+        }
     }
 
     private function getPath(): string
