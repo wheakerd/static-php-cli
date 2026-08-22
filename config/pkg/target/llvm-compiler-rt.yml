@@ -6,5 +6,5 @@ llvm-compiler-rt:
     metadata:
       license-files: [LICENSE.TXT]
       license: Apache-2.0-with-LLVM-exception
-  depends:
+  tools:
     - zig
