@@ -216,13 +216,22 @@ class PackageBuilder
 
     private function getBinUtil(string $name): string
     {
-        if (ToolchainManager::getToolchainClass() === ZigToolchain::class) {
+        $env = getenv(strtoupper($name)) ?: '';
+        $is_zig = ToolchainManager::getToolchainClass() === ZigToolchain::class;
+
+        // Honor an explicit override, but don't let Zig's own default wrappers block llvm-tools.
+        if ($env !== '' && !($is_zig && $env === "zig-{$name}")) {
+            return $env;
+        }
+
+        if ($is_zig) {
             $llvm_tools = PackageLoader::getPackage('llvm-tools');
             if ($llvm_tools instanceof ToolPackage && $llvm_tools->isInstalled()) {
                 return $llvm_tools->getBinary("llvm-{$name}");
             }
         }
-        return getenv(strtoupper($name)) ?: $name;
+
+        return $env !== '' ? $env : $name;
     }
 
     private function installLicense(Package $package, array $license): void
