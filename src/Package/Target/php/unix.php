@@ -143,15 +143,12 @@ trait unix
             $configure_str = str_replace('--with-pic', '--enable-pic', $configure_str);
         }
 
-        // reuse the same make vars so configure conftest links use the same LIBS (incl. -framework flags)
-        $vars = $this->makeVars($installer);
-
         // run ./configure with args
         $this->seekPhpSrcLogFileOnException(fn () => shell()->cd($package->getSourceDir())->setEnv([
             'CFLAGS' => getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_CFLAGS'),
             'CPPFLAGS' => "-I{$package->getIncludeDir()}",
             'LDFLAGS' => "-L{$package->getLibDir()} " . getenv('SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS'),
-            'LIBS' => $vars['EXTRA_LIBS'] ?? '',
+            'LIBS' => SystemTarget::getRuntimeLibs(),
         ])->exec($configure_str), $package->getSourceDir());
     }
 
