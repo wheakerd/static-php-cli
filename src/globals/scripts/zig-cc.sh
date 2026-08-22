@@ -51,7 +51,7 @@ for _arg in "${PARSED_ARGS[@]}"; do
         -shared) NEED_CRT=1 ;;
     esac
 done
-[[ "$SPC_COMPILER_EXTRA" == *-fprofile-generate* || "$SPC_COMPILER_EXTRA" == *-fcs-profile-generate* ]] && NEED_PROFILE_RT=1
+[[ "$SPC_COMPILER_EXTRA" == *-fprofile-generate* || "$SPC_COMPILER_EXTRA" == *-fprofile-instr-generate* || "$SPC_COMPILER_EXTRA" == *-fcs-profile-generate* ]] && NEED_PROFILE_RT=1
 
 RT_DIR="${SPC_COMPILER_RT_DIR:-}"
 if [[ $IS_LINK -eq 1 && -n "$RT_DIR" ]]; then
