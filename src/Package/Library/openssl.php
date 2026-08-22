@@ -89,7 +89,7 @@ class openssl
             '--with-zlib-lib=' . BUILD_LIB_PATH . ' ';
 
         $openssl_dir = getenv('OPENSSLDIR') ?: null;
-        $openssl_dir ??= LinuxUtil::getOSRelease()['dist'] === 'redhat' ? '/etc/pki/tls' : '/etc/ssl';
+        $openssl_dir ??= self::detectOpenSSLDir();
         $ex_lib = trim($ex_lib);
 
         // anything we want included (PGO -fprofile-*, LTO, custom hardening)
@@ -115,6 +115,19 @@ class openssl
             ->exec("make -j{$lib->getBuilder()->concurrency} CNF_EX_LIBS=\"{$ex_lib}\"")
             ->exec('make install_sw');
         $this->patchPkgConfig($lib);
+    }
+
+    private static function detectOpenSSLDir(): string
+    {
+        // /etc/centos-release exists on AlmaLinux and Rocky, so getOSRelease() reports
+        // 'centos' there and the name check missed the RHEL layout
+        foreach (['/etc/ssl', '/etc/pki/tls'] as $dir) {
+            if (file_exists("{$dir}/cert.pem") || glob("{$dir}/certs/*.0")) {
+                return $dir;
+            }
+        }
+
+        return LinuxUtil::getOSRelease()['dist'] === 'redhat' ? '/etc/pki/tls' : '/etc/ssl';
     }
 
     private function patchPkgConfig(LibraryPackage $pkg): void
