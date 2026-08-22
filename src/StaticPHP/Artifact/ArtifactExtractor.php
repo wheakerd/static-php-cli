@@ -136,7 +136,6 @@ class ArtifactExtractor
             throw new WrongUsageException("Artifact source [{$name}] not downloaded, please download it first!");
         }
 
-        // Local (--custom-local): source lives in place at $cache_info['dirname'].
         if (($cache_info['cache_type'] ?? null) === 'local') {
             $artifact->emitAfterSourceExtract($artifact->getSourceDir());
             return SPC_STATUS_ALREADY_EXTRACTED;

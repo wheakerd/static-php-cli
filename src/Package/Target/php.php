@@ -383,7 +383,7 @@ class php extends TargetPackage
             logger()->info("Adding hardcoded INI [{$source_name} = {$ini_value}]");
         }
         if (!empty($custom_ini)) {
-            ApplicationContext::invoke([SourcePatcher::class, 'patchHardcodedINI'], [$package->getSourceDir(), $custom_ini]);
+            ApplicationContext::invoke([SourcePatcher::class, 'patchHardcodedINI'], ['php_source_dir' => $package->getSourceDir(), 'ini' => $custom_ini]);
         }
 
         // Patch StaticPHP version
@@ -425,6 +425,17 @@ class php extends TargetPackage
                 continue;
             }
             $ext_dir = FileSystem::convertPath(SOURCE_PATH . '/php-src/ext/' . $ext->getExtensionName());
+            // shared-only extensions are built by phpize in their own source root and are
+            // never compiled in-tree, so they do not belong in php-src/ext - unlink them from there
+            if (!$ext->isBuildStatic() && !$ext->isBuildWithPhp()) {
+                if (FileSystem::isLink($ext_dir)) {
+                    logger()->debug("Extension [{$ext->getName()}] is shared-only, unlinking {$ext_dir}.");
+                    FileSystem::removeLink($ext_dir);
+                } elseif (is_dir($ext_dir) && file_exists("{$ext_dir}/.spc-ext-sync")) {
+                    FileSystem::removeDir($ext_dir);
+                }
+                continue;
+            }
             // already in place: bundled with php-src (getBuildDir prefers it for static
             // builds), extracted directly in-tree, or a correct link/junction
             if (realpath($ext_dir) === realpath($source_root)) {
